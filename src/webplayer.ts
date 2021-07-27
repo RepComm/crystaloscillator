@@ -5,8 +5,8 @@ import { InfoField } from "./infofield";
 
 import { Text } from "./text";
 
-import { Queue } from "./queue";
 import { getYoutubePlayerAPI, YT } from "./yt-api-bridge";
+import { Message } from "@repcomm/crystalapi";
 
 export interface WebPlayerItem {
   type: "youtube",
@@ -24,11 +24,6 @@ function resolveWebPlayerItemUrl(item: WebPlayerItem): string {
   }
 }
 
-export interface WebPlayerMessageJson {
-  type: "load",
-  contentId?: string;
-}
-
 export class WebPlayer extends Panel {
   private title: Text;
 
@@ -40,7 +35,7 @@ export class WebPlayer extends Panel {
   private frame: IFrame;
   private youtubePlayer: YT.Player;
 
-  private itemQueue: Queue<WebPlayerItem>;
+  // private itemQueue: Queue<WebPlayerItem>;
 
   private socket: WebSocket;
 
@@ -135,7 +130,7 @@ export class WebPlayer extends Panel {
       // });
     });
 
-    this.itemQueue = new Queue();
+    // this.itemQueue = new Queue();
     
     this.connectSocket();
   }
@@ -169,26 +164,49 @@ export class WebPlayer extends Panel {
     });
     this.socket.addEventListener("message", (evt)=>{
       console.log(evt);
-      let msg: WebPlayerMessageJson;
+      let msg: Message;
+      
       try {
         msg = JSON.parse(evt.data);
       } catch (ex) {
         //TODO - prolly do something here
         console.warn(ex);
       }
-
-      switch (msg.type) {
-        case "load":
-          this.youtubePlayer.loadVideoById(msg.contentId, 0);
-          break;
-      }
       console.log(msg);
+
+      //only listen to oscillator message events
+      if (msg.channel !== "crystaloscillator") return;
+      if (msg.type !== "channel-message") return;
+
+      let oscMsg = msg.msgCrystalOscillator;
+
+      switch (oscMsg.type) {
+        case "set-track":
+          this.youtubePlayer.loadVideoById(oscMsg.track.contentId, oscMsg.track.startTime||0);
+          break;
+        default:
+          throw `Unimplemented message type from api, was "${oscMsg.type}". API is out of date, or we got a message from somewhere goofy.`
+      }
     });
+
+    //when the socket opens, subscribe to oscillator messages
     this.socket.addEventListener("open", (evt)=>{
       this.fieldSocketStatus.setValue("Connected");
+
+      //Create a subscribe message, we want to listen to oscillator events
+      let msg: Message = {
+        type: "channel-subscribe",
+        channel: "crystaloscillator"
+      };
+
+      //convert to string
+      let data = JSON.stringify(msg);
+
+      //send to remote host
+      this.socket.send(data);
     });
   }
-  get items(): Queue<WebPlayerItem> {
-    return this.itemQueue;
-  }
+  // get items(): Queue<WebPlayerItem> {
+  //   return this.itemQueue;
+  // }
 }
